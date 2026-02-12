@@ -1,22 +1,24 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from app.routes import auth, analyze
+import os
 
 app = FastAPI()
 
-# Enable CORS for Frontend
+# --- CORS CONFIGURATION (Crucial for Vercel) ---
 origins = [
-    "http://localhost:5173",           # Localhost
-    "https://audio-deepfake-detector-jet.vercel.app/" # <--- You will add your Vercel URL here later
+    "http://localhost:5173",                          # Localhost Development
+    "http://127.0.0.1:5173",                          # Localhost Alternative
+    "https://audio-deepfake-detector-jet.vercel.app", # <--- YOUR VERCEL FRONTEND
+    "https://audio-deepfake-detector-jet.vercel.app/" # Trailing slash version
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Keep "*" for now to make deployment easier initially
+    allow_origins=origins,  # Explicitly allow your Vercel app
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],    # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],    # Allow all headers (Authorization, etc.)
 )
 
 # Register Routes
@@ -25,4 +27,4 @@ app.include_router(analyze.router, prefix="/api", tags=["Analysis"])
 
 @app.get("/")
 def read_root():
-    return {"message": "Audio Notary Backend is Running"}
+    return {"message": "Audio Notary Backend is Running Securely"}
