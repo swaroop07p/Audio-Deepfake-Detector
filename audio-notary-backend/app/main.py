@@ -8,7 +8,7 @@ app = FastAPI()
 # Enable CORS for Frontend
 origins = [
     "http://localhost:5173",           # Localhost
-    "https://your-frontend-app.vercel.app" # <--- You will add your Vercel URL here later
+    "https://audio-deepfake-detector-jet.vercel.app/" # <--- You will add your Vercel URL here later
 ]
 
 app.add_middleware(
