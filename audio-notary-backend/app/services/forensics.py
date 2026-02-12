@@ -9,7 +9,7 @@ import gc
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- BASELINE STATISTICS (Logic Preserved) ---
+# --- BASELINE STATISTICS ---
 HUMAN_BASELINE = {
     "pitch_jitter": (0.012, 0.007),
     "silence_ratio": (0.14, 0.11),
@@ -20,7 +20,6 @@ HUMAN_BASELINE = {
 
 def calculate_anomaly_score(value, baseline_mean, baseline_std):
     try:
-        # Core Logic: Z-Score Probability
         z_score = abs(value - baseline_mean) / (baseline_std + 1e-6)
         probability = (scipy.stats.norm.cdf(z_score) - 0.5) * 200
         return min(max(probability, 0), 99)
@@ -48,22 +47,22 @@ async def analyze_audio_forensics(file_upload, filename: str):
         with open(temp_filename, "wb") as f:
             f.write(content)
         
-        # Free up upload memory immediately
+        # Free memory
         del content
         gc.collect()
 
-        # 2. SMART LOAD (Optimization for Render Free Tier)
-        # We load only 10 seconds at 16kHz. 
-        # This contains enough data for accurate AI detection but saves 600MB RAM.
-        duration_limit = 10
+        # 2. ULTRA-LIGHT LOAD
+        # Load only 5 seconds. This drastically reduces the memory footprint.
+        # AI artifacts are usually present throughout the file, so 5s is enough.
+        duration_limit = 5
         y, sr = librosa.load(temp_filename, sr=16000, duration=duration_limit)
         y = librosa.util.normalize(y)
 
         # --- FEATURE 1: PITCH JITTER (The RAM Killer) ---
-        # Optimization: We only run pyin on a 3-second slice from the middle.
-        # This keeps the logic identical but prevents the server crash.
+        # Optimization: Analyze ONLY the center 1.0 second for pitch.
+        # This prevents the transition matrix from eating all RAM.
         mid_point = len(y) // 2
-        slice_len = 3 * sr # 3 seconds
+        slice_len = int(1.0 * sr) # 1 second
         start = max(0, mid_point - slice_len // 2)
         end = min(len(y), mid_point + slice_len // 2)
         y_slice = y[start:end]
@@ -73,14 +72,14 @@ async def analyze_audio_forensics(file_upload, filename: str):
         pitch_jitter = 0.0
         if f0 is not None:
             f0 = f0[~np.isnan(f0)]
-            if len(f0) > 10:
+            if len(f0) > 5: # Relaxed count check
                 pitch_jitter = (np.mean(np.abs(np.diff(f0))) / np.mean(f0))
 
-        # Cleanup pitch memory immediately
+        # Cleanup immediately
         del f0, y_slice
         gc.collect()
 
-        # --- FEATURE 2: SPECTRAL & CEPSTRAL (Run on full 10s) ---
+        # --- FEATURE 2: SPECTRAL & CEPSTRAL ---
         cpp_val = calculate_cepstral_peak(y, sr)
 
         S = np.abs(librosa.stft(y))
@@ -100,7 +99,7 @@ async def analyze_audio_forensics(file_upload, filename: str):
         if total_dur > 0:
             silence_ratio = (total_dur - non_silent_dur) / total_dur
 
-        # --- SCORING ENGINE (Exact Logic Maintained) ---
+        # --- SCORING ---
         scores = {}
         for feature_name, value in [
             ("pitch_jitter", pitch_jitter),
@@ -112,7 +111,7 @@ async def analyze_audio_forensics(file_upload, filename: str):
             baseline_mean, baseline_std = HUMAN_BASELINE[feature_name]
             scores[feature_name] = calculate_anomaly_score(value, baseline_mean, baseline_std)
 
-        # Weighted Probability Calculation
+        # Weighted Calculation
         final_fake_prob = (
             (scores["pitch_jitter"] * 0.20) +
             (scores["cepstral_peak"] * 0.25) +
@@ -127,7 +126,6 @@ async def analyze_audio_forensics(file_upload, filename: str):
         
         final_fake_prob = min(max(final_fake_prob, 2), 98)
 
-        # Verdict Logic
         if final_fake_prob > 60:
             verdict = "AI/Synthetic"
         else:
@@ -135,11 +133,11 @@ async def analyze_audio_forensics(file_upload, filename: str):
 
         reasons = []
         if verdict == "AI/Synthetic":
-            if scores["pitch_jitter"] > 50: reasons.append("Unnatural pitch stability (Robotic).")
-            if scores["cepstral_peak"] > 50: reasons.append("Weak vocal tract resonance.")
+            if scores["pitch_jitter"] > 50: reasons.append("Unnatural pitch stability.")
+            if scores["cepstral_peak"] > 50: reasons.append("Weak vocal resonance.")
             if scores["mfcc_consistency"] > 50: reasons.append("Flat vocal texture.")
         else:
-            reasons = ["Organic pitch fluctuations detected.", "Natural harmonic structure."]
+            reasons = ["Organic pitch fluctuations.", "Natural harmonic structure."]
 
         # FINAL CLEANUP
         del y, S, mfcc
@@ -163,13 +161,12 @@ async def analyze_audio_forensics(file_upload, filename: str):
 
     except Exception as e:
         logger.error(f"Forensics Error: {e}")
-        # Ensure cleanup on error
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
         return {
             "verdict": "Error",
             "confidence_score": 0.0,
-            "reasons": ["Analysis failed due to server load."],
+            "reasons": ["Analysis failed (Server Busy)"],
             "features": {},
             "metadata": {}
         }
