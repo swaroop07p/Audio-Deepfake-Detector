@@ -3,13 +3,12 @@ import numpy as np
 import os
 import scipy.stats
 import logging
-import gc 
 
-# Logging
+# Set up logging to see errors in Render console
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- BASELINE STATISTICS ---
+# --- BIOLOGICAL BASELINE STATISTICS ---
 HUMAN_BASELINE = {
     "pitch_jitter": (0.012, 0.007),
     "silence_ratio": (0.14, 0.11),
@@ -23,7 +22,15 @@ def calculate_anomaly_score(value, baseline_mean, baseline_std):
         z_score = abs(value - baseline_mean) / (baseline_std + 1e-6)
         probability = (scipy.stats.norm.cdf(z_score) - 0.5) * 200
         return min(max(probability, 0), 99)
-    except:
+    except Exception:
+        return 0
+
+def calculate_human_alignment(value, baseline_mean, baseline_std):
+    try:
+        z_score = abs(value - baseline_mean) / (baseline_std + 1e-6)
+        alignment = max(0, 100 - (z_score * 22))
+        return min(alignment, 100)
+    except Exception:
         return 0
 
 def calculate_cepstral_peak(y, sr):
@@ -32,7 +39,6 @@ def calculate_cepstral_peak(y, sr):
         cepstrum = np.fft.ifft(np.log(S + 1e-6), axis=0).real
         quefrency_axis = np.fft.fftfreq(cepstrum.shape[0], d=1/sr)
         valid_mask = (quefrency_axis > 0.002) & (quefrency_axis < 0.015)
-        if not np.any(valid_mask): return 0
         peak_val = np.max(np.abs(cepstrum[valid_mask, :]))
         return peak_val * 1000
     except:
@@ -42,44 +48,24 @@ async def analyze_audio_forensics(file_upload, filename: str):
     temp_filename = f"temp_{filename}"
     
     try:
-        # 1. Save File
         content = await file_upload.read()
         with open(temp_filename, "wb") as f:
             f.write(content)
-        
-        # Free memory
-        del content
-        gc.collect()
 
-        # 2. ULTRA-LIGHT LOAD
-        # Load only 5 seconds. This drastically reduces the memory footprint.
-        # AI artifacts are usually present throughout the file, so 5s is enough.
-        duration_limit = 5
-        y, sr = librosa.load(temp_filename, sr=16000, duration=duration_limit)
+        # Load Audio
+        y, sr = librosa.load(temp_filename, sr=None, duration=45)
         y = librosa.util.normalize(y)
 
-        # --- FEATURE 1: PITCH JITTER (The RAM Killer) ---
-        # Optimization: Analyze ONLY the center 1.0 second for pitch.
-        # This prevents the transition matrix from eating all RAM.
-        mid_point = len(y) // 2
-        slice_len = int(1.0 * sr) # 1 second
-        start = max(0, mid_point - slice_len // 2)
-        end = min(len(y), mid_point + slice_len // 2)
-        y_slice = y[start:end]
-
-        f0, _, _ = librosa.pyin(y_slice, fmin=60, fmax=500, sr=sr)
+        # --- FEATURE EXTRACTION ---
+        f0, _, _ = librosa.pyin(y, fmin=60, fmax=500)
         
+        # Handle empty pitch (silence/noise)
         pitch_jitter = 0.0
         if f0 is not None:
             f0 = f0[~np.isnan(f0)]
-            if len(f0) > 5: # Relaxed count check
+            if len(f0) > 10:
                 pitch_jitter = (np.mean(np.abs(np.diff(f0))) / np.mean(f0))
 
-        # Cleanup immediately
-        del f0, y_slice
-        gc.collect()
-
-        # --- FEATURE 2: SPECTRAL & CEPSTRAL ---
         cpp_val = calculate_cepstral_peak(y, sr)
 
         S = np.abs(librosa.stft(y))
@@ -89,8 +75,8 @@ async def analyze_audio_forensics(file_upload, filename: str):
 
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
         mfcc_var = np.mean(np.var(mfcc, axis=1))
+        mfcc_time_var = np.mean(np.var(mfcc, axis=0))
 
-        # --- FEATURE 3: SILENCE ---
         non_silent_intervals = librosa.effects.split(y, top_db=30)
         non_silent_dur = sum(end - start for start, end in non_silent_intervals) / sr
         total_dur = librosa.get_duration(y=y, sr=sr)
@@ -99,8 +85,10 @@ async def analyze_audio_forensics(file_upload, filename: str):
         if total_dur > 0:
             silence_ratio = (total_dur - non_silent_dur) / total_dur
 
-        # --- SCORING ---
+        # --- SCORING ENGINE ---
         scores = {}
+        human_alignment = {}
+
         for feature_name, value in [
             ("pitch_jitter", pitch_jitter),
             ("cepstral_peak", cpp_val),
@@ -110,63 +98,68 @@ async def analyze_audio_forensics(file_upload, filename: str):
         ]:
             baseline_mean, baseline_std = HUMAN_BASELINE[feature_name]
             scores[feature_name] = calculate_anomaly_score(value, baseline_mean, baseline_std)
+            human_alignment[feature_name] = calculate_human_alignment(value, baseline_mean, baseline_std)
 
-        # Weighted Calculation
         final_fake_prob = (
-            (scores["pitch_jitter"] * 0.20) +
-            (scores["cepstral_peak"] * 0.25) +
-            (scores["spectral_entropy"] * 0.20) +
+            (scores["pitch_jitter"] * 0.16) +
+            (scores["cepstral_peak"] * 0.22) +
+            (scores["spectral_entropy"] * 0.15) +
             (scores["silence_ratio"] * 0.15) +
-            (scores["mfcc_consistency"] * 0.20)
+            (scores["mfcc_consistency"] * 0.17)
         )
 
-        # Logic Adjustments
-        if pitch_jitter < 0.002: final_fake_prob += 10
-        if cpp_val < 3.0: final_fake_prob += 10
-        
+        # Adjustments
+        if pitch_jitter < 0.002: final_fake_prob += 5
+        if cpp_val < 4.0: final_fake_prob += 5
+        if mfcc_time_var > 150: final_fake_prob -= 12
+
+        human_confidence = np.mean(list(human_alignment.values()))
+        if human_confidence > 70 and final_fake_prob < 60:
+            final_fake_prob -= 20
+
         final_fake_prob = min(max(final_fake_prob, 2), 98)
 
-        if final_fake_prob > 60:
+        # Verdict
+        if final_fake_prob > 70 and human_confidence < 50:
             verdict = "AI/Synthetic"
-        else:
+        elif final_fake_prob < 45 and human_confidence > 55:
             verdict = "Real Human"
+        else:
+            verdict = "Real Human" if human_confidence > final_fake_prob else "AI/Synthetic"
 
         reasons = []
         if verdict == "AI/Synthetic":
-            if scores["pitch_jitter"] > 50: reasons.append("Unnatural pitch stability.")
-            if scores["cepstral_peak"] > 50: reasons.append("Weak vocal resonance.")
-            if scores["mfcc_consistency"] > 50: reasons.append("Flat vocal texture.")
+            if scores["pitch_jitter"] > 60: reasons.append("Robotic pitch smoothness detected.")
+            if scores["cepstral_peak"] > 60: reasons.append("Synthetic harmonic structure.")
+            if scores["mfcc_consistency"] > 60: reasons.append("Static vocal texture.")
         else:
-            reasons = ["Organic pitch fluctuations.", "Natural harmonic structure."]
-
-        # FINAL CLEANUP
-        del y, S, mfcc
-        gc.collect()
-
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
+            reasons = ["Natural micro pitch instability.", "Biological harmonic structure."]
 
         return {
             "verdict": verdict,
             "confidence_score": float(round(final_fake_prob, 2)),
+            "human_alignment_score": float(round(human_confidence, 2)),
             "reasons": reasons,
             "features": {
                 "jitter": float(round(pitch_jitter, 5)),
                 "cepstral_peak": float(round(cpp_val, 2)),
                 "spectral_entropy": float(round(spectral_entropy, 3)),
-                "silence_ratio": float(round(silence_ratio, 3))
+                "silence_ratio": float(round(silence_ratio, 3)),
+                "mfcc_temporal_variance": float(round(mfcc_time_var, 2))
             },
             "metadata": {"sample_rate": int(sr), "duration": float(round(total_dur, 2))}
         }
 
     except Exception as e:
         logger.error(f"Forensics Error: {e}")
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
         return {
             "verdict": "Error",
             "confidence_score": 0.0,
-            "reasons": ["Analysis failed (Server Busy)"],
+            "reasons": ["Analysis Failed"],
             "features": {},
             "metadata": {}
         }
+    finally:
+        # Ensure cleanup happens even if error occurs
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
