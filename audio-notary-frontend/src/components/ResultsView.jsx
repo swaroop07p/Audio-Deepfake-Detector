@@ -11,16 +11,35 @@ const ResultsView = ({ result }) => {
   const { resetScan } = useContext(ScanContext);
 
   const isFake = result.verdict === "AI/Synthetic";
-  // The backend sends "confidence_score" as the FAKE probability (0-100)
   const fakeScore = result.confidence_score;
   const humanScore = 100 - fakeScore;
 
-  // Pie Data
+  // Decide what to show (The winning score)
+  const displayScore = isFake ? fakeScore : humanScore;
+  const displayLabel = isFake ? "AI Probability" : "Human Probability";
+
   const pieData = [
     { name: 'Real Human', value: humanScore },
     { name: 'AI Synthetic', value: fakeScore },
   ];
   const COLORS = ['#00ff9d', '#ff0055'];
+
+  // --- CUSTOM TOOLTIP FIX ---
+  const CustomTooltip = ({ active, payload }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-black/90 border border-white/20 p-4 rounded-xl shadow-[0_0_20px_rgba(0,0,0,0.8)] backdrop-blur-md">
+          <p className="text-white font-bold mb-1">{payload[0].name}</p>
+          <p className="text-gray-300">
+            Confidence: <span style={{ color: payload[0].payload.fill, fontWeight: 'bold' }}>
+              {payload[0].value.toFixed(1)}%
+            </span>
+          </p>
+        </div>
+      );
+    }
+    return null;
+  };
 
   const handleDownload = async () => {
     if (!user || user.user_type === 'guest') {
@@ -57,9 +76,7 @@ const ResultsView = ({ result }) => {
           <span>{isFake ? "SYNTHETIC AUDIO DETECTED" : "VERIFIED HUMAN VOICE"}</span>
         </h1>
         <p className="text-gray-300 font-mono text-lg md:text-xl">
-           Confidence: <span className={`font-bold ${isFake ? 'text-neon-red' : 'text-neon-green'}`}>
-             {isFake ? fakeScore.toFixed(2) : humanScore.toFixed(2)}%
-           </span>
+            {displayLabel}: <span className={`font-bold ${isFake ? 'text-neon-red' : 'text-neon-green'}`}>{displayScore.toFixed(2)}%</span>
         </p>
       </div>
 
@@ -87,15 +104,15 @@ const ResultsView = ({ result }) => {
                                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                             ))}
                         </Pie>
-                        <Tooltip contentStyle={{backgroundColor: '#0a0a0a', borderColor: '#333', borderRadius: '8px'}} />
+                        <Tooltip content={<CustomTooltip />} />
                     </PieChart>
                 </ResponsiveContainer>
-                {/* Center Text shows the dominant score */}
+                
                 <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
                     <span className={`block text-3xl font-bold ${isFake ? 'text-neon-red' : 'text-neon-green'}`}>
-                        {isFake ? fakeScore.toFixed(0) : humanScore.toFixed(0)}%
+                        {displayScore.toFixed(0)}%
                     </span>
-                    <span className="text-xs text-gray-400 whitespace-nowrap">{isFake ? 'AI' : 'HUMAN'}</span>
+                    <span className="text-xs text-gray-400 whitespace-nowrap">{isFake ? 'AI PROBABILITY' : 'HUMAN PROBABILITY'}</span>
                 </div>
             </div>
             <div className="flex justify-center gap-6 mt-6 text-sm font-bold">
@@ -110,15 +127,19 @@ const ResultsView = ({ result }) => {
                 <FaExclamationTriangle/> Forensic Insights
             </h3>
             <ul className="space-y-4">
-                {result.reasons.length > 0 ? result.reasons.map((reason, idx) => (
-                    <li key={idx} className="flex items-start gap-3 bg-white/5 p-4 rounded-xl border-l-4 border-neon-blue hover:bg-white/10 transition">
-                        <span className="mt-1 text-neon-blue text-lg">➤</span>
-                        <p className="text-sm md:text-base text-gray-200 leading-relaxed">{reason}</p>
-                    </li>
-                )) : (
+                {result.reasons && result.reasons.length > 0 ? (
+                    result.reasons.map((reason, idx) => (
+                        <li key={idx} className="flex items-start gap-3 bg-white/5 p-4 rounded-xl border-l-4 border-neon-blue hover:bg-white/10 transition">
+                            <span className="mt-1 text-neon-blue text-lg">➤</span>
+                            <p className="text-sm md:text-base text-gray-200 leading-relaxed">{reason}</p>
+                        </li>
+                    ))
+                ) : (
                     <li className="flex items-start gap-3 bg-white/5 p-4 rounded-xl border-l-4 border-green-500">
                         <span className="mt-1 text-green-500 text-lg">✔</span>
-                        <p className="text-sm md:text-base text-gray-200 leading-relaxed">No anomalies detected. Audio passed all forensic checks.</p>
+                        <p className="text-sm md:text-base text-gray-200 leading-relaxed">
+                            No anomalies detected. Audio passed all forensic checks.
+                        </p>
                     </li>
                 )}
             </ul>
