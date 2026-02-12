@@ -22,7 +22,6 @@ const Dashboard = () => {
 
   const fetchHistory = async () => {
     try {
-      // FIXED: api.get
       const res = await api.get('/api/history');
       setHistory(res.data);
     } catch (err) {
@@ -41,7 +40,6 @@ const Dashboard = () => {
 
   const handleDownload = async (reportId, filename) => {
     try {
-        // FIXED: api.get
         const response = await api.get(`/api/report/${reportId}/download`, {
             responseType: 'blob',
         });
@@ -60,7 +58,6 @@ const Dashboard = () => {
   const confirmDelete = async () => {
     if (!deleteId) return;
     try {
-        // FIXED: api.delete
         await api.delete(`/api/report/${deleteId}`);
         toast.success("Record deleted permanently.");
         fetchHistory(); 
@@ -99,50 +96,63 @@ const Dashboard = () => {
             <p className="text-gray-400 text-center mt-10 italic">No audit records found.</p>
         ) : (
             <div className="space-y-4">
-            {history.map((item) => (
-                <div key={item._id} className="glass-panel p-4 rounded-xl flex flex-col md:flex-row items-center gap-4 hover:bg-white/10 transition border border-white/5">
+            {history.map((item) => {
+                // --- LOGIC FIX START ---
+                // 1. Determine if this record is Fake or Human
+                const isFake = item.verdict === 'AI/Synthetic';
                 
-                <div className="flex items-center gap-4 w-full md:flex-1 min-w-0"> 
-                    <div className={`p-3 rounded-full flex-shrink-0 ${item.verdict === 'AI/Synthetic' ? 'bg-red-500/10 text-red-400' : 'bg-green-500/10 text-green-400'}`}>
-                    <FaFileAudio size={20} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                    <h3 className="font-bold text-white truncate text-sm md:text-base" title={item.filename}>
-                        {item.filename}
-                    </h3>
-                    <p className="text-xs text-gray-400">{new Date(item.timestamp).toLocaleString()}</p>
-                    </div>
-                </div>
+                // 2. Calculate the "Winning" Percentage
+                // If it is AI, use the score directly (e.g., 99%)
+                // If it is Human, flip it (100 - 1% Fake = 99% Human)
+                const displayScore = isFake ? item.confidence_score : (100 - item.confidence_score);
+                // --- LOGIC FIX END ---
 
-                <div className="flex items-center justify-between md:justify-center w-full md:w-auto md:min-w-[220px]">
-                    <div className="flex items-center gap-2">
-                        {item.verdict === 'AI/Synthetic' ? <FaRobot className="text-red-500"/> : <FaUser className="text-green-500"/>}
-                        <span className={`font-mono font-bold whitespace-nowrap text-sm ${item.verdict === 'AI/Synthetic' ? 'text-red-400' : 'text-green-400'}`}>
-                        {item.verdict === 'AI/Synthetic' ? 'AI Generated' : 'Real Human'} 
+                return (
+                    <div key={item._id} className="glass-panel p-4 rounded-xl flex flex-col md:flex-row items-center gap-4 hover:bg-white/10 transition border border-white/5">
+                    
+                    <div className="flex items-center gap-4 w-full md:flex-1 min-w-0"> 
+                        <div className={`p-3 rounded-full flex-shrink-0 ${isFake ? 'bg-red-500/10 text-red-400' : 'bg-green-500/10 text-green-400'}`}>
+                        <FaFileAudio size={20} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                        <h3 className="font-bold text-white truncate text-sm md:text-base" title={item.filename}>
+                            {item.filename}
+                        </h3>
+                        <p className="text-xs text-gray-400">{new Date(item.timestamp).toLocaleString()}</p>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center justify-between md:justify-center w-full md:w-auto md:min-w-[220px]">
+                        <div className="flex items-center gap-2">
+                            {isFake ? <FaRobot className="text-red-500"/> : <FaUser className="text-green-500"/>}
+                            <span className={`font-mono font-bold whitespace-nowrap text-sm ${isFake ? 'text-red-400' : 'text-green-400'}`}>
+                            {isFake ? 'AI Generated' : 'Real Human'} 
+                            </span>
+                        </div>
+                        {/* 3. Display the Corrected Score with matching colors */}
+                        <span className={`px-2 py-1 rounded text-xs font-mono ml-3 border font-bold ${isFake ? 'bg-red-900/20 text-red-300 border-red-500/30' : 'bg-green-900/20 text-green-300 border-green-500/30'}`}>
+                            {displayScore.toFixed(1)}%
                         </span>
                     </div>
-                    <span className="bg-black/30 px-2 py-1 rounded text-xs text-gray-300 font-mono ml-3 border border-white/5">
-                        {item.confidence_score.toFixed(1)}%
-                    </span>
-                </div>
 
-                <div className="flex items-center gap-3 w-full md:w-auto justify-end border-t md:border-t-0 border-white/10 pt-3 md:pt-0 mt-2 md:mt-0">
-                    <button 
-                        onClick={() => handleDownload(item._id, item.filename)}
-                        className="flex-1 md:flex-none px-4 py-2 text-sm border border-neon-blue/30 text-neon-blue rounded-lg hover:bg-neon-blue/10 transition flex items-center justify-center gap-2 whitespace-nowrap"
-                    >
-                        <FaDownload /> Report
-                    </button>
-                    <button 
-                        onClick={() => setDeleteId(item._id)}
-                        className="px-3 py-2 text-sm border border-red-500/30 text-red-500 rounded-lg hover:bg-red-500/10 transition flex items-center justify-center gap-2"
-                    >
-                        <FaTrash />
-                    </button>
-                </div>
+                    <div className="flex items-center gap-3 w-full md:w-auto justify-end border-t md:border-t-0 border-white/10 pt-3 md:pt-0 mt-2 md:mt-0">
+                        <button 
+                            onClick={() => handleDownload(item._id, item.filename)}
+                            className="flex-1 md:flex-none px-4 py-2 text-sm border border-neon-blue/30 text-neon-blue rounded-lg hover:bg-neon-blue/10 transition flex items-center justify-center gap-2 whitespace-nowrap"
+                        >
+                            <FaDownload /> Report
+                        </button>
+                        <button 
+                            onClick={() => setDeleteId(item._id)}
+                            className="px-3 py-2 text-sm border border-red-500/30 text-red-500 rounded-lg hover:bg-red-500/10 transition flex items-center justify-center gap-2"
+                        >
+                            <FaTrash />
+                        </button>
+                    </div>
 
-                </div>
-            ))}
+                    </div>
+                );
+            })}
             </div>
         )}
       </div>
