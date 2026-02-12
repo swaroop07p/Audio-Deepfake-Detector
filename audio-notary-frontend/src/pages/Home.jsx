@@ -6,8 +6,7 @@ import { useNavigate } from "react-router-dom";
 import ScannerOverlay from "../components/ScannerOverlay";
 import ResultsView from "../components/ResultsView";
 import Hero from "../components/Hero";
-// 1. Import API
-import api from '../api';
+import api from '../api'; // Central API
 import {
   FaCloudUploadAlt,
   FaMicrophoneAlt,
@@ -35,6 +34,7 @@ const Home = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState("");
 
+  // Scroll to results when they appear
   useEffect(() => {
     if (scanResult && resultsRef.current) {
         setTimeout(() => {
@@ -46,7 +46,9 @@ const Home = () => {
   const onDrop = useCallback((acceptedFiles) => {
     setFile(acceptedFiles[0]);
     setError("");
-  }, []);
+    // Clear previous results when a new file is dropped
+    setScanResult(null); 
+  }, [setScanResult]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -55,7 +57,7 @@ const Home = () => {
   });
 
   const handleAnalyze = async () => {
-    // Check if logged in (Token is handled automatically by api.js now)
+    // 1. Check Login
     if (!localStorage.getItem("token") && !user) {
       alert("You must be logged in to scan files.");
       navigate("/");
@@ -64,31 +66,45 @@ const Home = () => {
 
     if (!file) return;
 
+    // 2. Start Animation
     setIsScanning(true);
     setError("");
+    setScanResult(null); // Ensure result is clear before starting
 
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      // 2. FIXED: Use 'api.post' instead of 'axios.post'
+      // 3. Send Request
+      console.log("Sending request to backend..."); // Debug Log
       const response = await api.post("/api/detect", formData, {
-          headers: {
-            "Content-Type": "multipart/form-data",
-            // No Authorization header needed here, api.js does it!
-          },
+          headers: { "Content-Type": "multipart/form-data" },
       });
 
+      console.log("Response received:", response.data); // Debug Log
+
+      // 4. Stop Animation & Show Result
+      // We wait 2 seconds just for the 'cool' animation effect, then show data
       setTimeout(() => {
         setScanResult(response.data);
         setIsScanning(false);
         setFile(null);
       }, 2000);
+
     } catch (err) {
-      console.error("Upload detailed error:", err);
-      setIsScanning(false);
-      if (err.response && err.response.status === 401) {
-        setError("Session expired. Please logout and login again.");
+      console.error("Analysis Failed:", err);
+      setIsScanning(false); // STOP ANIMATION ON ERROR
+      
+      if (err.response) {
+        if (err.response.status === 401) {
+            setError("Session expired. Please login again.");
+            localStorage.clear();
+            navigate('/');
+        } else if (err.response.status === 413) {
+            setError("File is too large.");
+        } else {
+            setError("Server Error: " + (err.response.data.detail || "Unknown"));
+        }
       } else if (err.code === "ERR_NETWORK") {
         setError("Cannot connect to server. Is the backend running?");
       } else {
@@ -97,7 +113,10 @@ const Home = () => {
     }
   };
 
+  // This handles the "ScannerOverlay" telling us it's done visually
   const handleAnimationComplete = () => {
+    // Only stop if we actually have a result or error. 
+    // If backend is still thinking, keep scanning!
     if (scanResult || error) {
       setIsScanning(false);
     }
@@ -117,13 +136,13 @@ const Home = () => {
   return (
     <div className="min-h-[100dvh] pt-24 pb-10 px-4 flex flex-col items-center justify-center relative overflow-hidden">
       
+      {/* Pass scanResult so Overlay knows when to finish */}
       <ScannerOverlay
         isScanning={isScanning}
         onComplete={handleAnimationComplete}
       />
       
       <Background />
-
       <div className="absolute top-0 left-0 w-full h-full z-[2] bg-gradient-to-b from-transparent via-black/10 to-black/40 pointer-events-none"></div>
 
       <div className="relative z-10 w-full flex flex-col items-center">
@@ -164,14 +183,21 @@ const Home = () => {
             {file && (
               <button
                 onClick={handleAnalyze}
-                className="w-full mt-6 py-4 rounded-xl bg-gradient-to-r from-neon-blue to-purple-600 font-bold text-lg tracking-wider hover:opacity-90 transition shadow-lg shadow-blue-500/30 flex justify-center items-center gap-2"
+                disabled={isScanning} // Disable button while scanning
+                className={`w-full mt-6 py-4 rounded-xl font-bold text-lg tracking-wider flex justify-center items-center gap-2 transition shadow-lg
+                    ${isScanning ? 'bg-gray-700 cursor-not-allowed text-gray-400' : 'bg-gradient-to-r from-neon-blue to-purple-600 hover:opacity-90 shadow-blue-500/30'}
+                `}
               >
-                <FaLock /> INITIATE FORENSIC SCAN
+                {isScanning ? (
+                    <>Scanning...</>
+                ) : (
+                    <><FaLock /> INITIATE FORENSIC SCAN</>
+                )}
               </button>
             )}
 
             {error && (
-              <p className="text-red-500 mt-4 text-center bg-red-900/20 p-2 rounded">
+              <p className="text-red-500 mt-4 text-center bg-red-900/20 p-2 rounded border border-red-500/50">
                 {error}
               </p>
             )}
