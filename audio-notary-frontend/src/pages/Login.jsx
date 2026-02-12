@@ -2,7 +2,7 @@ import { useState, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { ScanContext } from '../context/ScanContext'; 
-import api from '../api'; // <--- USING CENTRAL API
+import api from '../api'; // Use Central API
 import { toast } from 'react-toastify';
 
 const Login = () => {
@@ -30,9 +30,7 @@ const Login = () => {
       const endpoint = isRegister ? 'register' : 'login';
       const payload = isRegister ? { email, password, username } : { email, password };
       
-      // FIXED: Uses api.post (handles URL and headers automatically)
       const res = await api.post(`/auth/${endpoint}`, payload);
-      
       login({ email, username: res.data.username, user_type: res.data.user_type }, res.data.access_token);
       toast.success(`Welcome back, ${res.data.username}!`);
       navigate('/scan'); 
@@ -53,7 +51,6 @@ const Login = () => {
   };
 
   return (
-    // FIXED: Changed pt-32 to pt-40 to prevent header overlap
     <div className="min-h-screen pt-40 flex items-center justify-center relative overflow-hidden">
       <div className="bright-login-bg"></div>
       <div className="orb orb-1"></div>

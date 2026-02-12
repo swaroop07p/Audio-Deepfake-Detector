@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import ScannerOverlay from "../components/ScannerOverlay";
 import ResultsView from "../components/ResultsView";
 import Hero from "../components/Hero";
+// 1. Import API
 import api from '../api';
 import {
   FaCloudUploadAlt,
@@ -25,7 +26,7 @@ const Background = () => (
 );
 
 const Home = () => {
-  const { user, token } = useContext(AuthContext); // Get Token from Context
+  const { user } = useContext(AuthContext); 
   const { scanResult, setScanResult } = useContext(ScanContext);
   const navigate = useNavigate();
   const resultsRef = useRef(null);
@@ -54,10 +55,8 @@ const Home = () => {
   });
 
   const handleAnalyze = async () => {
-    // CRITICAL: Try getting token from Context first, then LocalStorage
-    const activeToken = token || localStorage.getItem("token");
-
-    if (!activeToken) {
+    // Check if logged in (Token is handled automatically by api.js now)
+    if (!localStorage.getItem("token") && !user) {
       alert("You must be logged in to scan files.");
       navigate("/");
       return;
@@ -72,16 +71,13 @@ const Home = () => {
     formData.append("file", file);
 
     try {
-      const response = await axios.post(
-        "/api/detect",
-        formData,
-        {
+      // 2. FIXED: Use 'api.post' instead of 'axios.post'
+      const response = await api.post("/api/detect", formData, {
           headers: {
             "Content-Type": "multipart/form-data",
-            "Authorization": `Bearer ${activeToken}`, // Send Token
+            // No Authorization header needed here, api.js does it!
           },
-        },
-      );
+      });
 
       setTimeout(() => {
         setScanResult(response.data);

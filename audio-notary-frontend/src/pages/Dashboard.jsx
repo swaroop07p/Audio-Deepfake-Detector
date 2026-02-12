@@ -1,5 +1,5 @@
 import { useEffect, useState, useContext } from 'react';
-import api from '../api'; // <--- USING CENTRAL API
+import api from '../api'; // Import API
 import { AuthContext } from '../context/AuthContext';
 import { FaFileAudio, FaDownload, FaRobot, FaUser, FaTrash, FaExclamationCircle, FaHistory } from 'react-icons/fa';
 import { toast } from 'react-toastify';
@@ -15,14 +15,14 @@ const Background = () => (
 );
 
 const Dashboard = () => {
-  const { user } = useContext(AuthContext); // Token is handled by api.js now
+  const { user } = useContext(AuthContext);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deleteId, setDeleteId] = useState(null);
 
   const fetchHistory = async () => {
     try {
-      // FIXED: Uses api.get (No manual headers needed)
+      // FIXED: api.get
       const res = await api.get('/api/history');
       setHistory(res.data);
     } catch (err) {
@@ -41,6 +41,7 @@ const Dashboard = () => {
 
   const handleDownload = async (reportId, filename) => {
     try {
+        // FIXED: api.get
         const response = await api.get(`/api/report/${reportId}/download`, {
             responseType: 'blob',
         });
@@ -59,6 +60,7 @@ const Dashboard = () => {
   const confirmDelete = async () => {
     if (!deleteId) return;
     try {
+        // FIXED: api.delete
         await api.delete(`/api/report/${deleteId}`);
         toast.success("Record deleted permanently.");
         fetchHistory(); 
